@@ -1,0 +1,8 @@
+{
+  "name": "agentstructuretest",
+  "private": true,
+  "description": "Arquitectura segura de Agente-Servidor para bases de datos locales",
+  "scripts": {
+    "install-all": "node install.js"
+  }
+}
