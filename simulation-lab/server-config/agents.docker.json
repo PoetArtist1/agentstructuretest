@@ -1,6 +1,0 @@
-{
-  "empresa_simulada": {
-    "secret": "secret-de-prueba-jmeter-12345",
-    "description": "Empresa de prueba para simulación de Tesis y Benchmarking"
-  }
-}
