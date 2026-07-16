@@ -4,3 +4,6 @@ node_modules/
 .env
 config.json
 windows-installer/
+resultados-benchmark/
+agent-logs/
+jmeter.log
