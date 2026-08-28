@@ -71,7 +71,7 @@ function connect() {
   if (isShuttingDown) return;
 
   console.log(`[Agent] Conectando a ${serverUrl} ...`);
-  ws = new WebSocket(serverUrl);
+  ws = new WebSocket(serverUrl, { perMessageDeflate: true });
 
   // Cuando la conexión TCP se establece exitosamente:
   ws.on('open', () => {

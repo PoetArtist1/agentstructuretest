@@ -30,6 +30,7 @@ require('dotenv').config();
 // Módulos nativos y de terceros necesarios
 const http = require('http');     // Para crear el servidor HTTP base
 const express = require('express'); // Framework para la API REST
+const compression = require('compression'); // Middleware de compresión GZIP para respuestas HTTP
 const cors = require('cors');      // Middleware para permitir peticiones cross-origin
 const helmet = require('helmet');  // Middleware de seguridad (cabeceras HTTP protectoras)
 const { WebSocketServer } = require('ws'); // Librería para el servidor WebSocket
@@ -48,6 +49,7 @@ const PORT = parseInt(process.env.PORT, 10) || 3500;
 const app = express();
 
 // ─── Middlewares Globales ────────────────────────────────────────────────────
+app.use(compression());    // Compresión GZIP: reduce el tamaño de las respuestas JSON (~70% más pequeñas)
 app.use(helmet());         // Protege la app configurando varios headers HTTP de seguridad
 app.use(cors());           // Permite peticiones desde cualquier origen (útil para Apps móviles/web)
 app.use(express.json());   // Parsea los cuerpos de las peticiones que vienen en formato JSON
@@ -88,6 +90,7 @@ const wss = new WebSocketServer({
   server,                          // Reutiliza el servidor de Express
   path: '/ws',                     // Ruta específica para los WebSockets
   maxPayload: 10 * 1024 * 1024,   // 10 MB máximo por mensaje (para soportar resultados grandes)
+  perMessageDeflate: true,         // Compresión binaria nativa: reduce el tamaño de los frames WS
 });
 
 // Inicializa la lógica para manejar las conexiones de los agentes

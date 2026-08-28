@@ -280,14 +280,14 @@
         </HeaderManager>
         <hashTree/>
 
-        <!-- Query: get_clientes (25,000 registros -> ~12 MB -> supera maxPayload de 10 MB) -->
-        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST get_clientes - PAYLOAD LIMIT TEST" enabled="true">
+        <!-- Query: get_clientes_paginados (Demuestra la solucion de paginacion con limit/offset) -->
+        <HTTPSamplerProxy guiclass="HttpTestSampleGui" testclass="HTTPSamplerProxy" testname="POST get_clientes_paginados" enabled="true">
           <boolProp name="HTTPSampler.postBodyRaw">true</boolProp>
           <elementProp name="HTTPsampler.Arguments" elementType="Arguments">
             <collectionProp name="Arguments.arguments">
               <elementProp name="" elementType="HTTPArgument">
                 <boolProp name="HTTPArgument.always_encode">false</boolProp>
-                <stringProp name="Argument.value">{"action": "get_clientes"}</stringProp>
+                <stringProp name="Argument.value">{"action": "get_clientes_paginados", "params": {"limit": 100, "offset": 0}}</stringProp>
                 <stringProp name="Argument.metadata">=</stringProp>
               </elementProp>
             </collectionProp>

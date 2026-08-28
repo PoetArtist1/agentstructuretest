@@ -20,12 +20,19 @@
 
 const NodeCache = require('node-cache');
 
+// ─── Tamaño máximo de entrada cacheable ──────────────────────────────────────
+// Si una respuesta supera este tamaño (en bytes), NO se guarda en caché
+// para evitar saturar la RAM del servidor con payloads gigantes.
+const MAX_CACHEABLE_SIZE = 1 * 1024 * 1024; // 1 MB
+
 // ─── Instancia del caché ──────────────────────────────────────────────────────
 // checkperiod: cada cuántos segundos node-cache barre y elimina las entradas expiradas.
 // useClones: false es más rápido. Los datos se devuelven por referencia, no por copia.
+// maxKeys: limita la cantidad de entradas para evitar crecimiento descontrolado de memoria.
 const cache = new NodeCache({
   checkperiod: 60,    // Limpieza de entradas expiradas cada 60 segundos
   useClones: false,   // Mejor rendimiento: no clona los objetos al leer/escribir
+  maxKeys: 1000,      // Máximo 1000 entradas en caché (previene memory leaks)
 });
 
 // TTL por defecto en segundos (configurable desde .env, default: sin caché)
@@ -82,6 +89,15 @@ function get(clienteId, action, params) {
 function set(clienteId, action, params, value, ttlSeconds) {
   const ttl = ttlSeconds || DEFAULT_TTL;
   if (ttl <= 0) return; // Si el TTL es 0, no cacheamos nada
+
+  // Validación de tamaño: no cacheamos respuestas mayores a 1 MB
+  // para evitar saturar la RAM con payloads gigantes (ej. get_clientes con 25K registros).
+  const estimatedSize = JSON.stringify(value).length;
+  if (estimatedSize > MAX_CACHEABLE_SIZE) {
+    console.log(`[Cache] SKIP → respuesta demasiado grande (${(estimatedSize / 1024 / 1024).toFixed(2)} MB > 1 MB)`);
+    return;
+  }
+
   const key = buildKey(clienteId, action, params);
   cache.set(key, value, ttl);
 }

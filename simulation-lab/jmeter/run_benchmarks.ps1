@@ -54,7 +54,7 @@ function Ejecutar-Prueba {
         "-Jthreads=$hilos",
         "-Jrampup=$rampup",
         "-Jloops=$loops",
-        "-Jjmeter.reportgenerator.overall_granularity=1000"
+        "-Jjmeter.reportgenerator.overall_granularity=100"
     )
 
     Start-Process -FilePath $JMETER_CMD -ArgumentList $jmeterArgs -NoNewWindow -Wait
@@ -76,6 +76,12 @@ Ejecutar-Prueba -hilos 50 -rampup 5 -loops 10 -archivoSalida "resultados_50_hilo
 
 # Rafaga 3: 100 peticiones simultaneas
 Ejecutar-Prueba -hilos 100 -rampup 10 -loops 10 -archivoSalida "resultados_100_hilos"
+
+# Rafaga 4: 1000 peticiones simultaneas
+Ejecutar-Prueba -hilos 1000 -rampup 100 -loops 10 -archivoSalida "resultados_1000_hilos"
+
+# Rafaga 5: 2000 peticiones simultaneas
+Ejecutar-Prueba -hilos 2000 -rampup 200 -loops 10 -archivoSalida "resultados_2000_hilos"
 
 Write-Host "Proceso de Benchmarking Finalizado." -ForegroundColor Green
 Write-Host "Los archivos CSV y reportes se encuentran en: $OUTPUT_DIR" -ForegroundColor Green

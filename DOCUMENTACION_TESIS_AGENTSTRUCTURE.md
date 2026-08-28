@@ -16,6 +16,7 @@
    - 5.3 [Landing Page (Sitio Web de Presentación)](#53-landing-page-sitio-web-de-presentación)
    - 5.4 [Instalador de Windows (Aplicación de Escritorio)](#54-instalador-de-windows-aplicación-de-escritorio)
    - 5.5 [Script de Instalación por Terminal (install.js)](#55-script-de-instalación-por-terminal-installjs)
+   - 5.6 [Laboratorio de Simulación y Benchmarking (simulation-lab)](#56-laboratorio-de-simulación-y-benchmarking-simulation-lab)
 6. [Flujo de Datos Completo (De extremo a extremo)](#6-flujo-de-datos-completo-de-extremo-a-extremo)
 7. [Modelo de Seguridad (Detallado)](#7-modelo-de-seguridad-detallado)
 8. [Patrones de Diseño Implementados](#8-patrones-de-diseño-implementados)
@@ -210,7 +211,8 @@ Este es el archivo principal que arranca todo el servidor. Realiza las siguiente
 
 1. **Carga variables de entorno** desde el archivo `.env` usando la librería `dotenv`. Esto incluye el puerto (PORT), la API Key (API_KEY) y el timeout de queries (QUERY_TIMEOUT_MS).
 
-2. **Crea la aplicación Express** e instala middlewares globales de seguridad:
+2. **Crea la aplicación Express** e instala middlewares globales de seguridad y optimización:
+   - `compression()`: Middleware de compresión GZIP para respuestas HTTP REST. Reduce el tamaño de las respuestas JSON en aproximadamente un 70%, acelerando la transferencia a los clientes.
    - `helmet()`: Configura cabeceras HTTP de seguridad como X-Content-Type-Options, X-Frame-Options, Strict-Transport-Security, entre otras. Protege contra ataques como clickjacking, MIME sniffing, XSS.
    - `cors()`: Permite peticiones cross-origin desde cualquier dominio (necesario para aplicaciones web y móviles que consumen la API desde dominios diferentes).
    - `express.json()`: Parsea automáticamente los cuerpos de las peticiones que llegan en formato JSON.
@@ -223,13 +225,13 @@ Este es el archivo principal que arranca todo el servidor. Realiza las siguiente
 
 4. **Crea el servidor HTTP** con `http.createServer(app)` vinculándolo con Express.
 
-5. **Crea el servidor WebSocket** (`WebSocketServer`) montándolo sobre el mismo servidor HTTP en la ruta `/ws`. Configura un payload máximo de 10 MB por mensaje para soportar resultados grandes de consultas.
+5. **Crea el servidor WebSocket** (`WebSocketServer`) montándolo sobre el mismo servidor HTTP en la ruta `/ws`. Configura un payload máximo de 10 MB por mensaje (`maxPayload`) e habilita la compresión binaria nativa a nivel de protocolo con `perMessageDeflate: true` para reducir el tamaño de los marcos de WebSocket.
 
 6. **Inicializa el socket handler** que gestiona las conexiones de los agentes.
 
 7. **Arranca** el servidor en el puerto configurado e imprime la información de inicio en consola.
 
-**Tecnologías usadas:** Node.js, Express.js, ws (WebSocket), dotenv, cors, helmet, http nativo.
+**Tecnologías usadas:** Node.js, Express.js, compression, ws (WebSocket con perMessageDeflate), dotenv, cors, helmet, http nativo.
 
 ##### `server/middleware/apiKey.js` — Middleware de Autenticación HTTP
 
@@ -269,10 +271,11 @@ Este es el endpoint que las aplicaciones clientes usan para solicitar datos. El 
 4. **Verifica que el agente esté conectado** consultando el registro en memoria (registry). Si el agente no está conectado, responde 502 (Bad Gateway) e incluye la lista de agentes actualmente conectados para ayudar al diagnóstico.
 5. **Valida contra el Action Manifest:** Si el agente registró sus acciones disponibles al conectarse, el servidor verifica que la acción solicitada exista en esa lista. Si no existe, responde 404 (Not Found) inmediatamente con la lista de acciones disponibles. Esta validación temprana evita esperar los 30 segundos del timeout por una acción que nunca existió.
 6. **Revisa la caché:** Si el TTL de caché está configurado (CACHE_DEFAULT_TTL > 0), busca un resultado previamente cacheado para la misma combinación exacta de clienteId + action + params. Si lo encuentra (cache hit), devuelve el resultado instantáneamente sin molestar al agente.
-7. **Crea una correlación:** Genera un UUID v4 único (correlationId) y crea una Promise que quedará "pausada" esperando la respuesta del agente. Registra esta promesa en el mapa de peticiones pendientes (registry.pending) con un timeout configurable (por defecto 30 segundos).
-8. **Envía al agente:** A través del WebSocket del agente, envía un mensaje JSON con tipo `query`, el correlationId, el nombre de la acción y los parámetros. **Nota importante: NO envía SQL. Solo el nombre de la acción.**
-9. **Espera la respuesta:** Hace `await` sobre la Promise creada. Esta promesa se resolverá cuando el agente envíe su respuesta de vuelta (o se rechazará si el timeout expira).
-10. **Guarda en caché** (si está habilitado) y responde al cliente con los datos.
+7. **Patrón Singleflight (Prevención del "Thundering Herd"):** Si múltiples peticiones idénticas llegan simultáneamente antes de que la primera obtenga respuesta del agente, el servidor utiliza un mapa de promesas activas (`inflight = new Map()`). Las peticiones secundarias "se unen" (JOIN) a la promesa de la primera petición en lugar de saturar al agente enviando queries duplicadas.
+8. **Crea una correlación:** Para la primera petición de una llave, genera un UUID v4 único (correlationId) y crea una Promise que quedará "pausada" esperando la respuesta del agente. Registra esta promesa en el mapa de peticiones pendientes (registry.pending) con un timeout configurable (por defecto 30 segundos).
+9. **Envía al agente:** A través del WebSocket del agente, envía un mensaje JSON con tipo `query`, el correlationId, el nombre de la acción y los parámetros. **Nota importante: NO envía SQL. Solo el nombre de la acción.**
+10. **Espera la respuesta:** Hace `await` sobre la Promise creada. Esta promesa se resolverá cuando el agente envíe su respuesta de vuelta (o se rechazará si el timeout expira).
+11. **Guarda en caché** (si está habilitado y cumple el filtro de tamaño de 1 MB) y responde a todos los clientes concurrentes con los datos.
 
 **2. `GET /agents`** — Lista de agentes conectados
 
@@ -344,13 +347,13 @@ Este módulo mantiene tres estructuras de datos fundamentales en la memoria RAM 
 
 Implementa una caché en memoria RAM usando la librería `node-cache` para evitar consultas repetidas al agente.
 
-**Funcionamiento:**
+**Optimizaciones de Seguridad y Rendimiento:**
+- **Control de Memoria (`maxKeys: 1000`):** Limita la memoria RAM estableciendo un máximo de 1,000 llaves concurrentes en caché para evitar desbordamientos de memoria.
+- **Filtro de Tamaño Máximo (1 MB):** En la función `set()`, evalúa `JSON.stringify(value).length`. Respuestas que superen 1 MB son ignoradas de la caché para proteger la RAM del servidor contra payloads masivos despaginados.
+- **Acceso Directo Sin Clonar (`useClones: false`):** Los datos se leen por referencia para máxima velocidad.
 - Genera llaves de caché deterministas basadas en `clienteId::action::params_ordenados_JSON`.
-- Los parámetros se ordenan alfabéticamente antes de serializar, para que `{a:1, b:2}` y `{b:2, a:1}` generen la misma llave.
 - El TTL (Time-To-Live) se configura con la variable de entorno `CACHE_DEFAULT_TTL` (en segundos). Por defecto es 0 (sin caché).
 - `node-cache` barre y elimina entradas expiradas automáticamente cada 60 segundos.
-- La caché se almacena por referencia (useClones: false) para mejor rendimiento.
-- Incluye función de invalidación por cliente para limpiar la caché cuando es necesario.
 
 #### 5.1.3 Archivos de Configuración del Servidor
 
@@ -388,19 +391,20 @@ QUERY_TIMEOUT_MS=30000
 | Librería | Versión | Propósito |
 |----------|---------|-----------|
 | `express` | ^4.21.2 | Framework HTTP para la API REST |
-| `ws` | ^8.18.1 | Servidor WebSocket (RFC 6455) |
+| `ws` | ^8.18.1 | Servidor WebSocket (RFC 6455) con compresión perMessageDeflate |
+| `compression` | ^1.7.5 | Compresión GZIP para respuestas HTTP REST |
 | `dotenv` | ^16.4.7 | Cargar variables de entorno desde .env |
 | `cors` | ^2.8.5 | Permitir peticiones cross-origin |
 | `helmet` | ^8.0.0 | Cabeceras de seguridad HTTP |
-| `node-cache` | ^5.1.2 | Caché en memoria RAM |
+| `node-cache` | ^5.1.2 | Caché en memoria RAM (maxKeys: 1000, filtro 1MB) |
 | `uuid` | ^11.1.0 | Generación de UUIDs v4 para correlación |
 
 ---
 
 ### 5.2 Agente On-Premise (Cliente del Túnel Inverso)
 
-**Ubicación en el repositorio:** `/agent`
-**Versión:** 2.0.0
+**Ubicación en el repositorio:** `/agent`  
+**Versión:** 2.0.0  
 **Nombre del paquete npm:** `gdata-tunnel-agent`
 
 #### 5.2.1 Descripción Funcional
@@ -428,7 +432,7 @@ El Agente es el componente más crítico del sistema. Es el único que tiene acc
 3. Desestructura la configuración: `clienteId`, `serverUrl`, `agentSecret`, `readOnly`, `dbEngine`, `reconnect` (parámetros de reconexión), y `dbConfig` (credenciales de BD).
 
 **Función `connect()`:**
-1. Crea una nueva conexión WebSocket hacia `serverUrl`.
+1. Crea una nueva conexión WebSocket hacia `serverUrl` activando la compresión de trama nativa con `{ perMessageDeflate: true }`.
 2. **On open:** Envía el mensaje de autenticación con `type: 'auth'`, `clienteId`, `secret`, y `actions` (la lista de nombres de acciones obtenida de `queryResolver.getAvailableActions()`).
 3. **On message:** Parsea el JSON. Si es `authResult`, verifica si la autenticación fue exitosa o fallida (si falló, se marca isShuttingDown = true para no reconectar). Si es `query`, llama a `handleQuery()`. Si es `error`, lo muestra en consola.
 4. **On close:** Llama a `scheduleReconnect()`.
@@ -558,12 +562,51 @@ Este archivo es el núcleo de la seguridad del agente. Define exactamente qué c
 }
 ```
 
-**Ejemplo real del proyecto (queries.json completo):**
+**Ejemplo real del proyecto (queries.json completo con paginación):**
 ```json
 {
   "get_cuentas_cobrar_by_client": {
     "description": "Obtiene cuentas por cobrar de un cliente específico, filtrando solo las que tienen saldo pendiente mayor a 0.01",
     "sql": "SELECT IdCliente as IDCliente, Id as IDDocumento, IdVendedor as IDVendedor, NroDocumt as nro_documento, Tipo as tipo_documento, SaldoAct as saldo_pendiente, AutoIncrField as auto_increment, Factor as tasa_cambio, FORMAT(FEmision, 'dd/MM/yyyy') as emision, FORMAT(FVenc, 'dd/MM/yyyy') as vence FROM CtsxCobrar WHERE IdCliente = @IdCliente AND SaldoAct > 0.01",
+    "params": {
+      "IdCliente": { "type": "string", "required": true }
+    }
+  },
+  "get_bancos": {
+    "description": "Obtiene todos los bancos registrados en el sistema con su moneda asociada",
+    "sql": "SELECT idbanco as IDBanco, Descripcion as banco, id_moneda as IDMoneda FROM fBancos",
+    "params": {}
+  },
+  "get_clientes": {
+    "description": "Obtiene la lista completa de clientes con toda su información comercial",
+    "sql": "SELECT Codigo as IDCliente, Descripcion as razon_social, Direccion1 as direccion, Telefonos as telefono, IdVendedor as IDVendedor, TipoPrecio as tipo_precio, Rif as rif, PermiteCredito as tiene_credito, LimiteCredito as limite_credito, DiasCredito as dias_credito, Contact as contacto, Email as email, Descto as descuento, NumeroUV as nro_ultimo_venta, FORMAT(FechaUV, 'dd/MM/yyyy') as fecha_ultima, NumeroUP as nro_ultimo_pago, FORMAT(FechaUP, 'dd/MM/yyyy') as fecha_ultimo_pago FROM Clientes",
+    "params": {}
+  },
+  "get_clientes_paginados": {
+    "description": "Obtiene clientes de forma paginada usando @limit y @offset como enteros para prevenir saturación de ancho de banda o desbordamientos en memoria",
+    "sql": "SELECT Codigo as IDCliente, Descripcion as razon_social, Direccion1 as direccion, Telefonos as telefono, IdVendedor as IDVendedor, TipoPrecio as tipo_precio, Rif as rif, PermiteCredito as tiene_credito, LimiteCredito as limite_credito, DiasCredito as dias_credito, Contact as contacto, Email as email FROM Clientes ORDER BY Codigo OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY",
+    "params": {
+      "limit": { "type": "int", "required": true },
+      "offset": { "type": "int", "required": true }
+    }
+  },
+  "get_productos": {
+    "description": "Obtiene el catálogo completo de productos con todos los niveles de precio, impuestos y datos de referencia",
+    "sql": "SELECT Codigo as IDProducto, Departamento as IDDepartamento, Descripcion1 as Descripcion, Precio_Maximo as precio_maximo, Precio_Minimo as precio_minimo, Precio_Mayor as precio_mayor, Precio_Detal as precio_detal, Precio_Oferta as precio_oferta, Exento as EsExento, Impuesto as tasa_iva, Refere as referencia, Marca as marca, Modelo as modelo, FORMAT(FechaUV, 'dd/MM/yyyy') as fecha_ult_venta, IDMoneda as IDMoneda FROM INVENTARIO",
+    "params": {}
+  },
+  "get_empresa": {
+    "description": "Obtiene los datos de configuración de la empresa",
+    "sql": "SELECT NombreEmpresa as razon_social, Direccion1 as direccion_fiscal, Fiscal1 as rif, Telefonos as telefono_empresa, EMail as email_principal FROM Configuracion",
+    "params": {}
+  },
+  "get_monedas": {
+    "description": "Obtiene todas las monedas configuradas en el sistema",
+    "sql": "SELECT Codigo as IDMoneda, Descripcion as nombre_moneda, Simbol as simbolo_moneda, ParaVenta as tasa_cambio FROM Monedas",
+    "params": {}
+  }
+}
+```iente = @IdCliente AND SaldoAct > 0.01",
     "params": {
       "IdCliente": { "type": "string", "required": true }
     }
@@ -729,6 +772,35 @@ Script de instalación interactivo por terminal compatible con Windows, Linux y 
 2. Pregunta si quiere instalar el Agente (opción 1) o el Servidor (opción 2).
 3. **Si elige Agente:** Solicita clienteId, URL del servidor, secret, modo solo-lectura, motor de BD, y credenciales de BD. Genera `agent/config.json` y ejecuta `npm install` en la carpeta `agent/`.
 4. **Si elige Servidor:** Solicita puerto, API Key (puede generar una automáticamente con crypto.randomBytes), timeout, y permite registrar múltiples agentes con sus secrets. Genera `server/.env` y `server/agents.json`, y ejecuta `npm install` en la carpeta `server/`.
+
+---
+
+### 5.6 Laboratorio de Simulación y Benchmarking (simulation-lab)
+
+**Ubicación en el repositorio:** `/simulation-lab`  
+**Tecnologías:** Docker, Docker Compose, PostgreSQL 15, Apache JMeter 5.5, PowerShell, Bash.
+
+El directorio `simulation-lab` constituye el entorno de simulación experimental aislado utilizado en la investigación para la recolección empírica de datos de rendimiento y la validación técnica de la propuesta.
+
+#### 5.6.1 Arquitectura del Laboratorio de Simulación (Docker Networks)
+El laboratorio despliega 3 contenedores aislados mediante redes virtuales de Docker (`cloud_net` y `on_premise_net`):
+1. **`sim-database` (PostgreSQL 15 Alpine):** Simula la base de datos ERP On-Premise. Pertenece únicamente a `on_premise_net` (192.168.100.0/24) sin puertos expuestos al host para garantizar aislamiento perimetral.
+2. **`sim-local-agent` (Agente AgentStructure):** Pertenece a ambas redes (`cloud_net` y `on_premise_net`). Actúa como puente manteniendo la conexión de salida (outbound) por WebSocket hacia el servidor.
+3. **`sim-central-server` (Servidor Central AgentStructure):** Pertenece únicamente a `cloud_net` (10.10.0.0/24). Expone el puerto `3500` al equipo host únicamente para la inyección de tráfico concurrente con Apache JMeter.
+
+#### 5.6.2 Poblamiento Masivo de Datos de Prueba (`db-init/init.sql`)
+Para evaluar el comportamiento del sistema bajo cargas extremas de datos, el script de inicialización genera datos sintéticos a gran escala:
+- **25,000 registros de Clientes** (`Clientes`), generando payloads despaginados de ~12.5 MB.
+- **5,000 registros de Inventario** (`INVENTARIO`).
+- Cuentas por cobrar, bancos y datos de configuración empresarial.
+
+#### 5.6.3 Plan de Pruebas de Rendimiento con Apache JMeter (`agentstructure_benchmark.jmx`)
+El plan de pruebas automatizado evalúa el desempeño de la arquitectura sometiéndola a ráfagas graduales de concurrencia:
+- **Ráfagas evaluadas:** 10, 50, 100, 1,000 y 2,000 hilos (clientes simultáneos).
+- **Ejecución no-GUI automatizada:** Mediante scripts de automatización `run_benchmarks.ps1` (Windows PowerShell) y `run_benchmarks.sh` (Linux Bash).
+- **Resultados empíricos obtenidos:**
+  - **Latencia sin caché / sin paginación:** Respuestas despaginadas de 25k registros (~12.5 MB) superaban el límite nativo del WebSocket (10 MB), provocando desconexiones y timeouts de ~30,000 ms.
+  - **Latencia con Paginación + Compresión GZIP + perMessageDeflate + Singleflight + Caché (`node-cache`):** Reducción dramática de la latencia promedio a **2.48 ms**, mediana de **2.0 ms** y mínimos de **1.0 ms** bajo 100 hilos concurrentes, logrando un **0.00% de tasa de error** y procesando más de 380 peticiones por segundo.
 
 ---
 
@@ -928,6 +1000,14 @@ Si `CACHE_DEFAULT_TTL > 0`, guarda el resultado con la llave `"empresa_abc::get_
 **Dónde:** `agent/index.js`, función `scheduleReconnect()`
 **Qué hace:** Aumenta progresivamente el tiempo de espera entre reconexiones fallidas (1s → 2s → 4s → 8s... hasta 30s) para evitar saturar el servidor o la red.
 
+### 8.9 Singleflight Pattern (server/routes/api.js)
+**Dónde:** `server/routes/api.js`, mapa `inflight`
+**Qué hace:** Previene el problema del "Thundering Herd" (estampida de caché). Si múltiples clientes realizan la misma solicitud (`clienteId::action::params`) de manera simultánea antes de que la primera obtenga respuesta del agente, solo 1 query viaja al agente; todas las peticiones concurrentes secundarias se unen (`JOIN`) a la promesa en vuelo activa y comparten la misma respuesta.
+
+### 8.10 Pagination Pattern (queryResolver.js + queries.json)
+**Dónde:** `agent/queries.json`, `agent/lib/queryResolver.js`
+**Qué hace:** Permite la fragmentación de consultas masivas en lotes o páginas (`OFFSET @offset ROWS FETCH NEXT @limit ROWS ONLY` o `LIMIT @limit OFFSET @offset`) tipificando parámetros como enteros (`int`). Previene el colapso del WebSocket por marcos mayores a 10 MB y reduce drásticamente la latencia de transferencia.
+
 ---
 
 ## 9. TECNOLOGÍAS Y DEPENDENCIAS UTILIZADAS
@@ -943,23 +1023,32 @@ Si `CACHE_DEFAULT_TTL > 0`, guarda el resultado con la llave `"empresa_abc::get_
 | Tecnología | Versión | Uso |
 |------------|---------|-----|
 | **Express.js** | ^4.21.2 | Framework web para API REST |
-| **ws** | ^8.18.1 | Implementación de WebSocket para Node.js (RFC 6455) |
+| **compression** | ^1.7.5 | Middleware de compresión GZIP para respuestas HTTP REST |
+| **ws** | ^8.18.1 | Implementación de WebSocket con compresión `perMessageDeflate` |
 | **dotenv** | ^16.4.7 | Gestión de variables de entorno |
 | **cors** | ^2.8.5 | Middleware de Cross-Origin Resource Sharing |
 | **helmet** | ^8.0.0 | Cabeceras de seguridad HTTP |
-| **node-cache** | ^5.1.2 | Almacenamiento en caché en memoria |
+| **node-cache** | ^5.1.2 | Caché en memoria RAM (maxKeys: 1000, filtro 1MB) |
 | **uuid** | ^11.1.0 | Generación de UUIDs v4 |
 
 ### 9.3 Agente On-Premise
 | Tecnología | Versión | Uso |
 |------------|---------|-----|
-| **ws** | ^8.18.1 | Cliente WebSocket |
+| **ws** | ^8.18.1 | Cliente WebSocket con compresión `perMessageDeflate: true` |
 | **mssql** | ^11.0.1 | Driver para Microsoft SQL Server (tedious) |
 | **pg** | ^8.13.1 | Driver para PostgreSQL (node-postgres) |
 | **mysql2** | ^3.11.5 | Driver para MySQL/MariaDB con Promises |
 | **dotenv** | ^16.4.7 | Gestión de variables de entorno |
 
-### 9.4 Landing Page
+### 9.4 Entorno de Simulación y Pruebas de Rendimiento (Benchmarking)
+| Tecnología | Versión | Uso |
+|------------|---------|-----|
+| **Docker / Docker Compose** | v2+ | Aislamiento de contenedores y redes virtuales |
+| **PostgreSQL** | 15 Alpine | Base de datos relacional de pruebas (25k clientes sintéticos) |
+| **Apache JMeter** | 5.5 | Inyección de carga concurrente no-GUI y generación de reportes HTML |
+| **PowerShell / Bash** | — | Scripts de automatización de pruebas (`run_benchmarks.ps1`, `run_benchmarks.sh`) |
+
+### 9.5 Landing Page
 | Tecnología | Versión | Uso |
 |------------|---------|-----|
 | **React** | 19 | Librería de UI para componentes |
@@ -967,18 +1056,18 @@ Si `CACHE_DEFAULT_TTL > 0`, guarda el resultado con la llave `"empresa_abc::get_
 | **CSS vanilla** | — | Estilos sin frameworks externos |
 | **Vercel** | — | Plataforma de despliegue |
 
-### 9.5 Instalador de Windows
+### 9.6 Instalador de Windows
 | Tecnología | Versión | Uso |
 |------------|---------|-----|
 | **Electron** | ^28.2.0 | Framework para aplicaciones de escritorio |
 | **electron-builder** | ^24.9.0 | Empaquetador de Electron en .exe |
 | **WinSW** | — | Windows Service Wrapper (ejecutar Node.js como servicio de Windows) |
 
-### 9.6 Protocolos de Comunicación
+### 9.7 Protocolos de Comunicación
 | Protocolo | Uso |
 |-----------|-----|
-| **HTTP/HTTPS** | Comunicación App → Servidor (API REST) |
-| **WebSocket (ws/wss)** | Comunicación Servidor ↔ Agente (túnel inverso bidireccional) |
+| **HTTP/HTTPS (GZIP)** | Comunicación App → Servidor (API REST comprimida) |
+| **WebSocket (ws/wss + Deflate)** | Comunicación Servidor ↔ Agente (túnel inverso con compresión de tramas) |
 | **TDS** | Protocolo nativo de Microsoft SQL Server |
 | **PostgreSQL wire protocol** | Protocolo nativo de PostgreSQL |
 | **MySQL client/server protocol** | Protocolo nativo de MySQL |
@@ -990,6 +1079,7 @@ Si `CACHE_DEFAULT_TTL > 0`, guarda el resultado con la llave `"empresa_abc::get_
 ```
 agentstructure/
 ├── README.md                         # Documentación principal del proyecto
+├── DOCUMENTACION_TESIS_AGENTSTRUCTURE.md # Documentación académica y técnica completa para la Tesis
 ├── package.json                      # Paquete raíz con scripts de instalación
 ├── install.js                        # Instalador interactivo por terminal (cross-platform)
 ├── vercel.json                       # Configuración de despliegue de la landing page
@@ -997,9 +1087,9 @@ agentstructure/
 │
 ├── agent/                            # ── AGENTE ON-PREMISE ──
 │   ├── package.json                  # Dependencias y scripts del agente
-│   ├── index.js                      # Punto de entrada: conexión WS, manejo de queries
+│   ├── index.js                      # Punto de entrada: conexión WS (Deflate), manejo de queries
 │   ├── config.json.example           # Plantilla de configuración (credenciales ficticias)
-│   ├── queries.json                  # Lista blanca de consultas SQL permitidas
+│   ├── queries.json                  # Lista blanca de consultas SQL permitidas (con paginación)
 │   ├── .gitignore                    # Excluye config.json y logs/
 │   ├── lib/
 │   │   ├── queryResolver.js          # Resolvedor de acciones: valida y resuelve SQL
@@ -1012,7 +1102,7 @@ agentstructure/
 │           └── mysqlDriver.js        # Driver para MySQL/MariaDB
 │
 ├── server/                           # ── SERVIDOR CENTRAL (API GATEWAY) ──
-│   ├── package.json                  # Dependencias y scripts del servidor
+│   ├── package.json                  # Dependencias (Express, GZIP, ws Deflate, node-cache)
 │   ├── index.js                      # Punto de entrada: Express + WebSocket Server
 │   ├── .env.example                  # Plantilla de variables de entorno
 │   ├── agents.json.example           # Plantilla de registro de agentes autorizados
@@ -1020,12 +1110,26 @@ agentstructure/
 │   ├── middleware/
 │   │   └── apiKey.js                 # Middleware de autenticación por API Key
 │   ├── routes/
-│   │   └── api.js                    # Rutas REST: /query/:clienteId, /agents, /status
+│   │   └── api.js                    # Rutas REST: Singleflight, /query/:clienteId, /agents, /status
 │   ├── ws/
 │   │   └── socketHandler.js          # Manejador de conexiones WebSocket de agentes
 │   └── lib/
 │       ├── registry.js               # Registro de agentes conectados y correlaciones
-│       └── cache.js                  # Caché en memoria (node-cache)
+│       └── cache.js                  # Caché en memoria (node-cache: maxKeys 1000, filtro 1MB)
+│
+├── simulation-lab/                   # ── LABORATORIO DE SIMULACIÓN Y BENCHMARKING ──
+│   ├── docker-compose.yml            # Orquestador de contenedores (db, agent, server)
+│   ├── README.md                     # Guía de simulación
+│   ├── INSTALL_GUIDE.md              # Guía de instalación del laboratorio
+│   ├── db-init/
+│   │   └── init.sql                  # Poblado de 25k clientes y 5k productos sintéticos
+│   ├── server-config/                # Archivos de entorno y registros de prueba
+│   ├── agent-config/                 # Configuración del agente y queries PostgreSQL
+│   ├── jmeter/
+│   │   ├── agentstructure_benchmark.jmx # Plan de pruebas de rendimiento (10 a 2000 hilos)
+│   │   ├── run_benchmarks.ps1        # Script de automatización PowerShell
+│   │   └── run_benchmarks.sh         # Script de automatización Linux Bash
+│   └── resultados-benchmark/         # CSVs y reportes HTML generados por JMeter
 │
 ├── landing/                          # ── LANDING PAGE (PRESENTACIÓN) ──
 │   ├── package.json                  # Dependencias (React, Vite)
@@ -1055,6 +1159,7 @@ agentstructure/
 ```
 
 ---
+
 
 ## 11. DETALLE TÉCNICO ARCHIVO POR ARCHIVO
 
@@ -1089,22 +1194,28 @@ Si la escritura del log falla (disco lleno, permisos), solo se muestra un error 
 
 ---
 
-## 13. SISTEMA DE CACHÉ EN MEMORIA
+## 13. SISTEMA DE CACHÉ EN MEMORIA Y OPTIMIZACIÓN CONCURRENTE
 
 ### 13.1 Propósito
-Si 50 usuarios piden exactamente los mismos datos en un corto período, el agente solo trabaja UNA VEZ. Los otros 49 reciben la respuesta instantáneamente desde la caché del servidor.
+Si 50 usuarios piden exactamente los mismos datos en un corto período, el agente solo trabaja UNA VEZ. Los otros 49 reciben la respuesta instantáneamente desde la caché del servidor en memoria RAM.
 
-### 13.2 Implementación
-- Librería: `node-cache` (almacenamiento en RAM, sin Redis).
-- Llave de caché: `clienteId::action::params_JSON_ordenados`.
-- TTL configurable por variable de entorno (`CACHE_DEFAULT_TTL` en segundos).
-- Limpieza automática de entradas expiradas cada 60 segundos.
-- Invalidación por cliente: puede limpiar toda la caché de un clienteId específico.
+### 13.2 Implementación y Patrones
+- **Librería base:** `node-cache` (almacenamiento en RAM, sin Redis).
+- **Llave de caché:** `clienteId::action::params_JSON_ordenados`.
+- **TTL Configurable:** Definido mediante `CACHE_DEFAULT_TTL` en el archivo `.env` (ej. 60 segundos).
+- **Patrón Singleflight (Prevención del "Thundering Herd"):** Si 100 clientes realizan la misma solicitud de manera simultánea antes de que la primera query obtenga respuesta del agente, el servidor utiliza un mapa de promesas activas (`inflight = new Map()`). Las peticiones concurrentes secundarias se unen (`JOIN`) a la promesa inicial sin saturar al agente con consultas duplicadas.
+- **Límite de Claves (`maxKeys: 1000`):** Previene memory leaks limitando la caché a un máximo de 1,000 entradas concurrentes.
+- **Filtro de Tamaño Máximo (1 MB):** En la función `set()`, si la serialización JSON del valor supera 1 MB, no se almacena en caché. Esto protege la memoria RAM del servidor contra respuestas masivas despaginadas.
 
-### 13.3 Limitaciones
-- La caché es por proceso. Si el servidor se reinicia, se pierde.
-- No se distribuye entre múltiples instancias del servidor.
-- Es ideal para datos que no cambian frecuentemente (catálogos, configuraciones).
+### 13.3 Impacto Empírico en Pruebas de Rendimiento (Benchmarking)
+En las pruebas automatizadas con Apache JMeter bajo ráfagas de 100 a 2,000 hilos concurrentes:
+- **Sin Caché (Tiempo Real BD):** Latencia promedio de ~52.6 ms.
+- **Con Caché + Singleflight + GZIP + Deflate:** Latencia promedio de **2.48 ms**, mediana de **2.0 ms** y mínimos de **1.0 ms**, procesando más de **381 peticiones por segundo** con un **0.00% de tasa de error**.
+
+### 13.4 Limitaciones
+- La caché es por proceso. Si el servidor se reinicia, se disipa.
+- No se distribuye entre múltiples instancias del servidor (no requiere clúster Redis).
+- Es ideal para datos que no cambian frecuentemente (catálogos, listas de clientes, configuraciones).
 
 ---
 
@@ -1308,6 +1419,11 @@ Aplicación            Servidor Central           Agente On-Premise         Base
 | **Middleware** | Función que se ejecuta entre la recepción de una petición HTTP y la respuesta. Puede modificar la petición, la respuesta, o cortar el flujo. |
 | **Full-Duplex** | Modo de comunicación donde ambas partes pueden enviar y recibir datos simultáneamente, sin esperar turnos. |
 | **Soberanía del Dato** | Principio que establece que una organización mantiene control absoluto sobre dónde se almacenan, procesan y transfieren sus datos. |
+| **Singleflight Pattern** | Patrón que agrupa múltiples peticiones concurrentes idénticas en una sola promesa en vuelo, compartiendo la respuesta entre todos los clientes concurrentes. |
+| **Thundering Herd** | Estampida de peticiones. Ocurre cuando múltiples clientes solicitan simultáneamente un mismo recurso antes de que la primera respuesta esté lista, saturando la infraestructura. |
+| **perMessageDeflate** | Extensión del protocolo WebSocket (RFC 7692) que comprime frames binarios/JSON a nivel de transporte con el algoritmo DEFLATE. |
+| **GZIP** | Formato y software de compresión sin pérdida utilizado en HTTP para reducir en ~70% el tamaño del cuerpo de respuestas REST. |
+| **Apache JMeter** | Herramienta de pruebas de carga automatizada y benchmarking no-GUI usada para simular ráfagas concurrentes (de 10 a 2,000 hilos) y generar reportes empíricos de rendimiento. |
 
 ---
 
