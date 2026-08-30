@@ -1,0 +1,24 @@
+# ======================================================================
+# Docker Compose — Servidor Central en VPS
+# ======================================================================
+# USO: Despliega SOLO el Servidor Central en tu VPS.
+# El Agente y la BD corren en tu laptop con docker-compose.agent.yml.
+#
+# Despliegue:
+#   docker compose -f docker-compose.vps.yml up -d --build
+# ======================================================================
+
+services:
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: demo-central-server
+    ports:
+      - "3500:3500"
+    volumes:
+      - ./server-config/agents.demo.json:/app/agents.json:ro
+      - ./server-config/env.demo:/app/.env:ro
+    restart: unless-stopped
+    environment:
+      - NODE_ENV=production

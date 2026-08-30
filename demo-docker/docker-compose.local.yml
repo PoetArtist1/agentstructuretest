@@ -1,0 +1,85 @@
+# ======================================================================
+# Docker Compose — Todo Local (Plan B / Fallback)
+# ======================================================================
+# USO: Despliega TODO en tu laptop como Plan B si falla la red.
+# El jurado accede a http://TU_LAPTOP_IP:8080 desde la misma red WiFi.
+#
+# Despliegue:
+#   docker compose -f docker-compose.local.yml up -d --build
+# ======================================================================
+
+services:
+  # 1. Base de Datos PostgreSQL
+  db:
+    image: postgres:15-alpine
+    container_name: demo-local-database
+    environment:
+      POSTGRES_DB: tesis_demo_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: demo-tesis-db-2026
+    volumes:
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    networks:
+      - on_premise_net
+    expose:
+      - "5432"
+    restart: unless-stopped
+
+  # 2. Servidor Central (API Gateway)
+  server:
+    build:
+      context: ../server
+      dockerfile: Dockerfile
+    container_name: demo-local-server
+    ports:
+      - "3500:3500"
+    volumes:
+      - ./server-config/agents.demo.json:/app/agents.json:ro
+      - ./server-config/env.demo:/app/.env:ro
+    networks:
+      - cloud_net
+    restart: unless-stopped
+
+  # 3. Agente On-Premise (puente entre cloud y on-premise)
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    container_name: demo-local-agent
+    depends_on:
+      - db
+      - server
+    volumes:
+      - ./agent-config/config.local.json:/app/config.json:ro
+      - ./agent-config/queries.demo.json:/app/queries.json:ro
+    networks:
+      - cloud_net
+      - on_premise_net
+    restart: unless-stopped
+
+  # 4. Frontend Web (Nginx sirviendo archivos estáticos)
+  frontend:
+    build:
+      context: ..
+      dockerfile: demo-docker/nginx/Dockerfile.local
+    container_name: demo-local-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      - server
+    networks:
+      - cloud_net
+    restart: unless-stopped
+
+networks:
+  cloud_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.20.0.0/24
+
+  on_premise_net:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 192.168.200.0/24

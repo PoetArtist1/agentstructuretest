@@ -1,0 +1,27 @@
+{
+  "_comentario": "Queries para la demo de defensa de tesis (PostgreSQL). 3 acciones: clientes, productos, trabajadores.",
+
+  "get_clientes_demo": {
+    "description": "Obtiene 3,000 clientes con datos comerciales completos para la demo del jurado",
+    "sql": "SELECT Codigo as IDCliente, Descripcion as razon_social, Direccion1 as direccion, Telefonos as telefono, IdVendedor as IDVendedor, TipoPrecio as tipo_precio, Rif as rif, PermiteCredito as tiene_credito, LimiteCredito as limite_credito, DiasCredito as dias_credito, Contact as contacto, Email as email, Descto as descuento, NumeroUV as nro_ultima_venta, to_char(FechaUV, 'DD/MM/YYYY') as fecha_ultima_venta, NumeroUP as nro_ultimo_pago, to_char(FechaUP, 'DD/MM/YYYY') as fecha_ultimo_pago FROM clientes ORDER BY Codigo LIMIT 3000",
+    "params": {}
+  },
+
+  "get_productos_demo": {
+    "description": "Obtiene 2,000 productos del catálogo con todos los niveles de precio para la demo del jurado",
+    "sql": "SELECT Codigo as IDProducto, Departamento as departamento, Descripcion1 as descripcion, Precio_Maximo as precio_maximo, Precio_Minimo as precio_minimo, Precio_Mayor as precio_mayor, Precio_Detal as precio_detal, Precio_Oferta as precio_oferta, Exento as es_exento, Impuesto as tasa_iva, Refere as referencia, Marca as marca, Modelo as modelo, to_char(FechaUV, 'DD/MM/YYYY') as fecha_ult_venta, IDMoneda as moneda FROM inventario ORDER BY Codigo LIMIT 2000",
+    "params": {}
+  },
+
+  "get_trabajadores_demo": {
+    "description": "Obtiene 300 trabajadores de la empresa con cargo, departamento y salario para la demo del jurado",
+    "sql": "SELECT Codigo as IDTrabajador, Nombre as nombre, Apellido as apellido, Cedula as cedula, Cargo as cargo, Departamento as departamento, to_char(FechaIngreso, 'DD/MM/YYYY') as fecha_ingreso, Salario as salario, Telefono as telefono, Email as email, Estatus as estatus FROM trabajadores ORDER BY Codigo",
+    "params": {}
+  },
+
+  "get_empresa": {
+    "description": "Obtiene los datos de configuración de la empresa",
+    "sql": "SELECT NombreEmpresa as razon_social, Direccion1 as direccion_fiscal, Fiscal1 as rif, Telefonos as telefono_empresa, EMail as email_principal FROM Configuracion",
+    "params": {}
+  }
+}

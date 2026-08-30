@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="description" content="Demo interactiva de AgentStructure — Sistema de túnel inverso por WebSocket para consultar bases de datos On-Premise desde la nube de forma segura.">
+  <title>AgentStructure — Demo en Vivo | Defensa de Tesis</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🔌</text></svg>">
+</head>
+<body>
+
+  <!-- ─── Header ──────────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="header-content">
+      <div class="logo">
+        <div class="logo-icon">🔌</div>
+        <div>
+          <div class="logo-text">AgentStructure</div>
+          <div class="logo-subtitle">Demo en Vivo — Defensa de Tesis</div>
+        </div>
+      </div>
+      <div id="statusBadge" class="status-badge disconnected">
+        <span class="status-dot"></span>
+        <span id="statusText">Verificando...</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- ─── Main Content ────────────────────────────────────────────── -->
+  <main class="main-container">
+
+    <!-- ─── Action Buttons ──────────────────────────────────────── -->
+    <section class="actions-panel">
+      <div class="section-title">Panel de Consultas</div>
+      <div class="actions-grid">
+        <button id="btnClientes" class="action-btn clientes" onclick="fetchData('get_clientes_demo')">
+          <span class="action-btn-icon">👥</span>
+          <span class="action-btn-info">
+            <span class="action-btn-label">Clientes</span>
+            <span class="action-btn-count">3,000 registros</span>
+          </span>
+        </button>
+        <button id="btnProductos" class="action-btn productos" onclick="fetchData('get_productos_demo')">
+          <span class="action-btn-icon">📦</span>
+          <span class="action-btn-info">
+            <span class="action-btn-label">Productos</span>
+            <span class="action-btn-count">2,000 registros</span>
+          </span>
+        </button>
+        <button id="btnTrabajadores" class="action-btn trabajadores" onclick="fetchData('get_trabajadores_demo')">
+          <span class="action-btn-icon">👔</span>
+          <span class="action-btn-info">
+            <span class="action-btn-label">Trabajadores</span>
+            <span class="action-btn-count">300 registros</span>
+          </span>
+        </button>
+        <button id="btnClear" class="action-btn clear" onclick="clearAll()">
+          <span class="action-btn-icon">🧹</span>
+          <span class="action-btn-info">
+            <span class="action-btn-label">Limpiar</span>
+            <span class="action-btn-count">Borrar datos y métricas</span>
+          </span>
+        </button>
+      </div>
+    </section>
+
+    <!-- ─── Metrics ─────────────────────────────────────────────── -->
+    <section class="metrics-panel">
+      <div class="section-title">Métricas en Tiempo Real</div>
+      <div class="metrics-grid">
+        <div class="metric-card">
+          <div class="metric-label">⚡ Latencia</div>
+          <div id="metricLatency" class="metric-value latency">— ms</div>
+          <div class="metric-sub">Tiempo de respuesta</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">📊 Filas</div>
+          <div id="metricRows" class="metric-value rows">—</div>
+          <div class="metric-sub">Registros recibidos</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">💾 Origen</div>
+          <div id="metricSource" class="metric-value source">—</div>
+          <div class="metric-sub">Fuente de datos</div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-label">🔌 Túnel</div>
+          <div id="metricTunnel" class="metric-value status">—</div>
+          <div class="metric-sub">Estado del agente</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ─── Data Table ──────────────────────────────────────────── -->
+    <section class="table-panel">
+      <div class="table-header">
+        <div class="section-title" style="margin-bottom: 0;">Datos Recibidos</div>
+        <div id="tableInfo" class="table-info"></div>
+      </div>
+      <div class="table-container">
+        <div class="table-scroll">
+          <table class="data-table" id="dataTable">
+            <thead id="tableHead"></thead>
+            <tbody id="tableBody">
+              <tr>
+                <td colspan="100">
+                  <div class="table-empty">
+                    <div class="table-empty-icon">📋</div>
+                    <div class="table-empty-text">Sin datos cargados</div>
+                    <div class="table-empty-sub">Presiona un botón de consulta para comenzar</div>
+                  </div>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="pagination" class="pagination" style="display: none;"></div>
+      </div>
+    </section>
+
+    <!-- ─── Terminals ───────────────────────────────────────────── -->
+    <section class="terminals-panel">
+      <div class="section-title">Terminales en Vivo</div>
+      <div class="terminals-grid">
+        <!-- Terminal: Servidor Central -->
+        <div class="terminal">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+            </div>
+            <span class="terminal-title">🌐 Servidor Central (Cloud)</span>
+          </div>
+          <div id="termServer" class="terminal-body">
+            <div class="terminal-line"><span class="timestamp">[--:--:--]</span> Esperando actividad...</div>
+          </div>
+        </div>
+        <!-- Terminal: Agente On-Premise -->
+        <div class="terminal">
+          <div class="terminal-header">
+            <div class="terminal-dots">
+              <span class="terminal-dot red"></span>
+              <span class="terminal-dot yellow"></span>
+              <span class="terminal-dot green"></span>
+            </div>
+            <span class="terminal-title">🏢 Agente On-Premise (Laptop)</span>
+          </div>
+          <div id="termAgent" class="terminal-body">
+            <div class="terminal-line"><span class="timestamp">[--:--:--]</span> Esperando actividad...</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- ─── Footer ──────────────────────────────────────────────────── -->
+  <footer class="footer">
+    AgentStructure — Túnel Inverso WebSocket para Bases de Datos On-Premise<br>
+    Defensa de Tesis de Grado &bull; 2026
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

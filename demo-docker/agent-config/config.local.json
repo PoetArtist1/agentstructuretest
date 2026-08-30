@@ -1,0 +1,22 @@
+{
+  "serverUrl": "ws://server:3500/ws",
+  "clienteId": "tesis_demo",
+  "agentSecret": "demo-tesis-secret-2026",
+  "readOnly": true,
+  "dbEngine": "postgres",
+  "reconnect": {
+    "initialDelayMs": 1000,
+    "maxDelayMs": 30000,
+    "backoffMultiplier": 2
+  },
+  "db": {
+    "server": "db",
+    "port": 5432,
+    "database": "tesis_demo_db",
+    "user": "postgres",
+    "password": "demo-tesis-db-2026",
+    "options": {
+      "connectionTimeout": 15000
+    }
+  }
+}

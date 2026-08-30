@@ -1,0 +1,40 @@
+# ======================================================================
+# Docker Compose — Agente + Base de Datos en Laptop (conecta al VPS)
+# ======================================================================
+# USO: Despliega el Agente y la BD en tu laptop.
+# El Servidor Central debe estar corriendo en el VPS (docker-compose.vps.yml).
+#
+# IMPORTANTE: Antes de levantar, edita config.vps.json y reemplaza
+# TU_VPS_IP con la IP real de tu VPS.
+#
+# Despliegue:
+#   docker compose -f docker-compose.agent.yml up -d --build
+# ======================================================================
+
+services:
+  # Base de Datos PostgreSQL (simula la BD corporativa on-premise)
+  db:
+    image: postgres:15-alpine
+    container_name: demo-database
+    environment:
+      POSTGRES_DB: tesis_demo_db
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: demo-tesis-db-2026
+    volumes:
+      - ./db-init:/docker-entrypoint-initdb.d:ro
+    expose:
+      - "5432"
+    restart: unless-stopped
+
+  # Agente On-Premise (se conecta al Servidor Central en el VPS)
+  agent:
+    build:
+      context: ../agent
+      dockerfile: Dockerfile
+    container_name: demo-local-agent
+    depends_on:
+      - db
+    volumes:
+      - ./agent-config/config.vps.json:/app/config.json:ro
+      - ./agent-config/queries.demo.json:/app/queries.json:ro
+    restart: unless-stopped
