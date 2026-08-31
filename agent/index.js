@@ -200,7 +200,16 @@ async function handleQuery(msg) {
     );
 
     const elapsed = Date.now() - start;
+    const nowStr = new Date().toLocaleTimeString('es', { hour12: false });
     console.log(`[Agent] Query OK [${correlationId}] (${elapsed}ms, ${result.recordset.length} filas)`);
+
+    const agentLogs = [
+      `[${nowStr}] [RECV] Query recibida [ID:${correlationId.slice(0, 8)}] → Acción: "${action}"`,
+      `[${nowStr}] [RESOLVE] queries.json validado ✔ | Motor: ${dbEngine} | BD: ${dbConfig.database}`,
+      `[${nowStr}] [EXEC] Ejecutando SQL contra ${dbEngine.toUpperCase()} en red local on-premise...`,
+      `[${nowStr}] [OK] PostgreSQL respondió en ${elapsed}ms → ${result.recordset.length} registros obtenidos`,
+      `[${nowStr}] [AUDIT] Registro de auditoría guardado (OK, ${result.recordset.length} filas, ${elapsed}ms)`,
+    ];
 
     // ── Registrar en auditoría (éxito) ──
     audit.log({
@@ -211,11 +220,14 @@ async function handleQuery(msg) {
       timeMs: elapsed,
     });
 
-    // Devolvemos el resultado al servidor
+    // Devolvemos el resultado al servidor incluyendo los logs de ejecución reales del agente
     ws.send(JSON.stringify({
       type: 'queryResult',
       correlationId,
-      data: result,
+      data: {
+        ...result,
+        agentLogs,
+      },
     }));
   } catch (err) {
     const elapsed = Date.now() - start;

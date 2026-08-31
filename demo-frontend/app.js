@@ -194,14 +194,21 @@ async function fetchData(action) {
     // Logs de terminal
     if (result.fromCache) {
       addTerminalLog('server', 'cache', `Cache HIT → ${API_CONFIG.clienteId}::${action} (${latency}ms)`);
+      addTerminalLog('agent', 'cache', `Datos servidos desde memoria del VPS (Laptop en reposo)`);
     } else {
-      addTerminalLog('server', 'ok', `Respuesta del agente → ${rows.length} filas (${latency}ms)`);
+      addTerminalLog('server', 'ok', `Respuesta recibida del agente → ${rows.length} filas (${latency}ms)`);
       addTerminalLog('server', 'cache', `Cache SET → ${API_CONFIG.clienteId}::${action} (TTL: 60s)`);
-    }
 
-    addTerminalLog('agent', 'agent', `Query recibida → acción: "${action}"`);
-    addTerminalLog('agent', 'db', `Ejecutando SQL contra PostgreSQL...`);
-    addTerminalLog('agent', 'ok', `Query OK → ${rows.length} filas (${Math.max(1, latency - 15)}ms)`);
+      if (result.data?.agentLogs && Array.isArray(result.data.agentLogs)) {
+        result.data.agentLogs.forEach(logLine => {
+          addRawTerminalLog('agent', logLine);
+        });
+      } else {
+        addTerminalLog('agent', 'agent', `Query recibida → acción: "${action}"`);
+        addTerminalLog('agent', 'db', `Ejecutando SQL contra PostgreSQL...`);
+        addTerminalLog('agent', 'ok', `Query OK → ${rows.length} filas`);
+      }
+    }
 
     // Renderizar tabla
     renderTable();
@@ -374,6 +381,28 @@ function updateMetric(id, value) {
   // Force reflow
   void el.offsetWidth;
   el.classList.add('updated');
+}
+
+function addRawTerminalLog(terminal, rawLine) {
+  const container = document.getElementById(terminal === 'server' ? 'termServer' : 'termAgent');
+  const line = document.createElement('div');
+  line.className = 'terminal-line';
+
+  // Resaltar tags como [RECV], [RESOLVE], [EXEC], [OK], [AUDIT] con colores
+  let formatted = escapeHtml(rawLine)
+    .replace(/\[RECV\]/g, '<span class="label-agent">[RECV]</span>')
+    .replace(/\[RESOLVE\]/g, '<span class="label-ws">[RESOLVE]</span>')
+    .replace(/\[EXEC\]/g, '<span class="label-db">[EXEC]</span>')
+    .replace(/\[OK\]/g, '<span class="label-ok">[OK]</span>')
+    .replace(/\[AUDIT\]/g, '<span class="label-cache">[AUDIT]</span>');
+
+  line.innerHTML = formatted;
+  container.appendChild(line);
+  container.scrollTop = container.scrollHeight;
+
+  while (container.children.length > 50) {
+    container.removeChild(container.firstChild);
+  }
 }
 
 // ─── Terminal Logs ───────────────────────────────────────────────────
