@@ -7,3 +7,4 @@ windows-installer/
 resultados-benchmark/
 agent-logs/
 jmeter.log
+demo-docker/agent-config/config.vps.json

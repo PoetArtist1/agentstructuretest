@@ -10,7 +10,7 @@
     "backoffMultiplier": 2
   },
   "db": {
-    "server": "db",
+    "server": "db_vps",
     "port": 5432,
     "database": "tesis_demo_db",
     "user": "postgres",
