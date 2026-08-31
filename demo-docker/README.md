@@ -127,7 +127,7 @@ ipconfig    # Windows — buscar "IPv4 Address" en el adaptador WiFi
 
 - [ ] Docker Desktop instalado y funcionando en tu laptop
 - [ ] VPS accesible por SSH (si usas Escenario A)
-- [ ] `config.vps.json` tiene la IP correcta del VPS
+- [ ] `config.vps.json` tiene la IP correcta del VPS (con puerto 3505)
 - [ ] `app.js` tiene la URL correcta del VPS en `vpsUrl`
 - [ ] `vercel.json` tiene la URL correcta del VPS en `destination`
 - [ ] Levantar los contenedores Docker y esperar 15 segundos

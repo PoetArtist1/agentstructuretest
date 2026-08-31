@@ -32,7 +32,7 @@ services:
       dockerfile: Dockerfile
     container_name: demo-local-server
     ports:
-      - "3500:3500"
+      - "3505:3505"
     volumes:
       - ./server-config/agents.demo.json:/app/agents.json:ro
       - ./server-config/env.demo:/app/.env:ro

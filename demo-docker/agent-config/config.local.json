@@ -1,5 +1,5 @@
 {
-  "serverUrl": "ws://server:3500/ws",
+  "serverUrl": "ws://server:3505/ws",
   "clienteId": "tesis_demo",
   "agentSecret": "demo-tesis-secret-2026",
   "readOnly": true,

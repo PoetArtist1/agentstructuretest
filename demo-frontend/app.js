@@ -11,7 +11,7 @@
 // - En Docker local -> usa '/api'
 // - En localhost directo -> usa 'http://localhost:3500'
 const API_CONFIG = {
-  localUrl: 'http://localhost:3500',
+  localUrl: 'http://localhost:3505',
   proxyUrl: '/api',
   clienteId: 'tesis_demo',
   apiKey: 'demo-api-key-tesis-2026',
