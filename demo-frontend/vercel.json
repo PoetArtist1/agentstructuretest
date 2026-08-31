@@ -2,15 +2,21 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://TU_VPS_IP:3500/:path*"
+      "destination": "$VPS_URL/:path*"
     }
   ],
   "headers": [
     {
       "source": "/(.*)",
       "headers": [
-        { "key": "X-Frame-Options", "value": "DENY" },
-        { "key": "X-Content-Type-Options", "value": "nosniff" }
+        {
+          "key": "X-Frame-Options",
+          "value": "DENY"
+        },
+        {
+          "key": "X-Content-Type-Options",
+          "value": "nosniff"
+        }
       ]
     }
   ]

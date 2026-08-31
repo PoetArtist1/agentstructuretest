@@ -7,14 +7,12 @@
 
 // ─── Configuración ───────────────────────────────────────────────────
 // Detección automática del entorno:
-// - Si estamos en localhost:8080 (Docker local) → usa el proxy Nginx /api/
-// - Si estamos en Vercel (producción) → usa la URL del VPS
-// - Si estamos en localhost sin Nginx → usa localhost:3500 directamente
+// - En Vercel o producción -> usa el proxy relativo '/api' (configurado con $VPS_URL en Vercel)
+// - En Docker local -> usa '/api'
+// - En localhost directo -> usa 'http://localhost:3500'
 const API_CONFIG = {
-  // ⚠️ CAMBIAR ESTA URL POR LA DE TU VPS ANTES DE DESPLEGAR EN VERCEL
-  vpsUrl: 'https://TU_VPS_IP:3500',
   localUrl: 'http://localhost:3500',
-  localProxyUrl: '/api',
+  proxyUrl: '/api',
   clienteId: 'tesis_demo',
   apiKey: 'demo-api-key-tesis-2026',
 };
@@ -23,16 +21,12 @@ function getBaseUrl() {
   const host = window.location.hostname;
   const port = window.location.port;
 
-  // Docker local con Nginx proxy
-  if (host === 'localhost' && port === '8080') {
-    return API_CONFIG.localProxyUrl;
-  }
-  // Desarrollo local directo
-  if (host === 'localhost' || host === '127.0.0.1') {
+  // Desarrollo local directo sin proxy (ej. node server/index.js)
+  if ((host === 'localhost' || host === '127.0.0.1') && port === '3000') {
     return API_CONFIG.localUrl;
   }
-  // Producción (Vercel u otro hosting)
-  return API_CONFIG.vpsUrl;
+  // Para Vercel y Docker Nginx local, usa la ruta relativa '/api'
+  return API_CONFIG.proxyUrl;
 }
 
 const BASE_URL = getBaseUrl();
