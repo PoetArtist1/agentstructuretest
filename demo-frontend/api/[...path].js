@@ -23,15 +23,11 @@ module.exports = async (req, res) => {
   // Leer la variable privada desde Vercel
   const vpsUrl = (process.env.VPS_URL || 'http://localhost:3505').replace(/\/$/, '');
 
-  // Limpiar la subruta recibida (ej: /api/agents -> /agents)
-  let subpath = req.url || '';
-  if (subpath.startsWith('/api')) {
-    subpath = subpath.substring(4);
-  }
-  if (!subpath.startsWith('/')) {
-    subpath = '/' + subpath;
-  }
-
+  // Construir subruta determinista desde req.query.path (ej: ["query", "tesis_demo"] -> /query/tesis_demo)
+  const pathParts = req.query && req.query.path
+    ? (Array.isArray(req.query.path) ? req.query.path : [req.query.path])
+    : [];
+  const subpath = '/' + pathParts.join('/');
   const targetUrl = `${vpsUrl}${subpath}`;
 
   try {
