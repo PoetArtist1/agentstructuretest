@@ -23,7 +23,7 @@ const NodeCache = require('node-cache');
 // ─── Tamaño máximo de entrada cacheable ──────────────────────────────────────
 // Si una respuesta supera este tamaño (en bytes), NO se guarda en caché
 // para evitar saturar la RAM del servidor con payloads gigantes.
-const MAX_CACHEABLE_SIZE = 1 * 1024 * 1024; // 1 MB
+const MAX_CACHEABLE_SIZE = 10 * 1024 * 1024; // 10 MB (Permite cachear 3,000 clientes)
 
 // ─── Instancia del caché ──────────────────────────────────────────────────────
 // checkperiod: cada cuántos segundos node-cache barre y elimina las entradas expiradas.
@@ -35,8 +35,8 @@ const cache = new NodeCache({
   maxKeys: 1000,      // Máximo 1000 entradas en caché (previene memory leaks)
 });
 
-// TTL por defecto en segundos (configurable desde .env, default: sin caché)
-const DEFAULT_TTL = parseInt(process.env.CACHE_DEFAULT_TTL, 10) || 0;
+// TTL por defecto en segundos (configurable desde .env, default: 60s)
+const DEFAULT_TTL = parseInt(process.env.CACHE_DEFAULT_TTL, 10) || 60;
 
 // ─── Generar llave de caché ───────────────────────────────────────────────────
 /**

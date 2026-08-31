@@ -28,8 +28,8 @@ const router = Router();
 // Timeout configurable para esperar respuesta del agente (default: 30 segundos)
 const QUERY_TIMEOUT_MS = parseInt(process.env.QUERY_TIMEOUT_MS, 10) || 30_000;
 
-// TTL de caché configurable (default: 0 = sin caché)
-const CACHE_TTL = parseInt(process.env.CACHE_DEFAULT_TTL, 10) || 0;
+// TTL de caché configurable (default: 60 segundos)
+const CACHE_TTL = parseInt(process.env.CACHE_DEFAULT_TTL, 10) || 60;
 
 // ─── Singleflight: Mapa de peticiones en vuelo ──────────────────────────────
 // Evita el problema "thundering herd" (estampida de caché):
