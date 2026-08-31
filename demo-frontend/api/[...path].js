@@ -1,56 +1,105 @@
 /**
- * Vercel Serverless Function Proxy
+ * Vercel Serverless Proxy — Catch-All Route
  * ======================================================================
- * Redirige de forma transparente las peticiones desde el frontend de Vercel
- * hacia el Servidor Central (VPS) leyendo la variable de entorno privada VPS_URL.
+ * Archivo: api/[...path].js
+ *
+ * Captura TODAS las peticiones a /api/* y las reenvía al Servidor Central
+ * (VPS) usando la variable de entorno privada VPS_URL de Vercel.
+ *
+ * Ejemplos de ruteo:
+ *   GET  /api/agents             → GET  http://VPS:3505/agents
+ *   POST /api/query/tesis_demo   → POST http://VPS:3505/query/tesis_demo
+ *   GET  /api/status             → GET  http://VPS:3505/status
  *
  * Cero IPs expuestas en GitHub — 100% Privado y Seguro.
  * ======================================================================
  */
 
+const http = require('http');
+const https = require('https');
+
 module.exports = async (req, res) => {
-  // Configuración de cabeceras CORS
+  // ─── CORS ───
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,PATCH,DELETE,POST,PUT');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Key');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS,POST,PUT,DELETE');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type, X-Api-Key');
 
-  // Responder a preflight OPTIONS request
   if (req.method === 'OPTIONS') {
     return res.status(200).end();
   }
 
-  // Leer la variable privada desde Vercel
+  // ─── Construir URL destino ───
   const vpsUrl = (process.env.VPS_URL || 'http://localhost:3505').replace(/\/$/, '');
 
-  // Construir subruta determinista desde req.query.path (ej: ["query", "tesis_demo"] -> /query/tesis_demo)
+  // req.query.path es un array con los segmentos de ruta después de /api/
+  // Ej: /api/query/tesis_demo → req.query.path = ["query", "tesis_demo"]
+  // Ej: /api/agents           → req.query.path = ["agents"]
   const pathParts = req.query && req.query.path
     ? (Array.isArray(req.query.path) ? req.query.path : [req.query.path])
     : [];
-  const subpath = '/' + pathParts.join('/');
-  const targetUrl = `${vpsUrl}${subpath}`;
+  const targetPath = '/' + pathParts.join('/');
+  const targetUrl = `${vpsUrl}${targetPath}`;
 
-  try {
-    const fetchOptions = {
+  // ─── Preparar body para POST ───
+  let bodyStr = '';
+  if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
+    bodyStr = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+  }
+
+  // ─── Hacer la petición al VPS usando http/https nativo ───
+  return new Promise((resolve) => {
+    const parsedUrl = new URL(targetUrl);
+    const transport = parsedUrl.protocol === 'https:' ? https : http;
+
+    const options = {
+      hostname: parsedUrl.hostname,
+      port: parsedUrl.port,
+      path: parsedUrl.pathname + parsedUrl.search,
       method: req.method,
       headers: {
         'Content-Type': 'application/json',
         'X-Api-Key': req.headers['x-api-key'] || 'demo-api-key-tesis-2026',
       },
+      timeout: 30000,
     };
 
-    if (req.method !== 'GET' && req.method !== 'HEAD' && req.body) {
-      fetchOptions.body = typeof req.body === 'string' ? req.body : JSON.stringify(req.body);
+    if (bodyStr) {
+      options.headers['Content-Length'] = Buffer.byteLength(bodyStr);
     }
 
-    const response = await fetch(targetUrl, fetchOptions);
-    const data = await response.json();
-    return res.status(response.status).json(data);
-  } catch (err) {
-    return res.status(500).json({
-      ok: false,
-      error: `Error de Proxy Serverless Vercel: ${err.message}`,
-      targetUrl,
+    const proxyReq = transport.request(options, (proxyRes) => {
+      let data = '';
+      proxyRes.on('data', (chunk) => { data += chunk; });
+      proxyRes.on('end', () => {
+        try {
+          const json = JSON.parse(data);
+          res.status(proxyRes.statusCode).json(json);
+        } catch {
+          res.status(proxyRes.statusCode).send(data);
+        }
+        resolve();
+      });
     });
-  }
+
+    proxyReq.on('error', (err) => {
+      res.status(502).json({
+        ok: false,
+        error: `Proxy error: ${err.message}`,
+        target: targetUrl,
+      });
+      resolve();
+    });
+
+    proxyReq.on('timeout', () => {
+      proxyReq.destroy();
+      res.status(504).json({ ok: false, error: 'Gateway Timeout (30s)' });
+      resolve();
+    });
+
+    if (bodyStr) {
+      proxyReq.write(bodyStr);
+    }
+    proxyReq.end();
+  });
 };
